@@ -69,11 +69,11 @@ def download_audio(video_id):
         'format': 'worstaudio/worst',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
+            'preferredcodec': 'wav',
             'preferredquality': '48',
         }],
         'outtmpl': f'{video_id}.%(ext)s'
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
-    return f"{video_id}.mp3"
+    return f"{video_id}.wav"
