@@ -1,4 +1,26 @@
-backend_pdc2_venv/
+# Conda files
+.conda
+*.conda
+conda-meta/
+environment.yml
+
+# Python cache files
 __pycache__/
-*.pyc
+*.py[cod]
+
+# macOS system files
 .DS_Store
+
+# IDE specific files (optional, add if you use these)
+.vscode/
+.idea/
+
+# Any local configuration files
+*.local
+
+# Log files
+*.log
+
+# Output directories (adjust as needed)
+output/
+results/
