@@ -1,12 +1,12 @@
 import os
 import json
 import tempfile
+import subprocess
 from youtube_transcript_api import YouTubeTranscriptApi
 from urllib.parse import urlparse, parse_qs
 import re
 import yt_dlp
-from montreal_forced_aligner import aligner
-from montreal_forced_aligner.command_line.mfa import mfa_align
+import textgrid
 
 def extract_video_id(url):
     patterns = [
@@ -45,6 +45,7 @@ def get_youtube_transcript(video_id):
         return None
 
 def download_audio(video_id):
+    output_filename = f'{video_id}.wav'
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -52,11 +53,24 @@ def download_audio(video_id):
             'preferredcodec': 'wav',
             'preferredquality': '192',
         }],
-        'outtmpl': f'{video_id}.%(ext)s'
+        'outtmpl': f'{video_id}.%(ext)s',
+        'keepvideo': False,
+        'verbose': True
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
-    return f"{video_id}.wav"
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
+        
+        # Check if the file exists and has a non-zero size
+        if os.path.exists(output_filename) and os.path.getsize(output_filename) > 0:
+            print(f"Audio file successfully downloaded: {output_filename}")
+            return output_filename
+        else:
+            print(f"Error: Audio file not found or empty: {output_filename}")
+            return None
+    except Exception as e:
+        print(f"Error downloading audio: {str(e)}")
+        return None   
 
 def prepare_transcript_for_mfa(transcript):
     return " ".join([item['text'] for item in transcript])
@@ -74,43 +88,51 @@ def align_transcript_with_audio(video_id, transcript):
     os.rename(temp_transcript_path, os.path.join(corpus_dir, f"{video_id}.txt"))
 
     output_dir = tempfile.mkdtemp()
-
-    # Run MFA align
-    mfa_align(corpus_dir, "english", output_dir, clean=True, verbose=False)
-
-    # Read the TextGrid file
     textgrid_path = os.path.join(output_dir, f"{video_id}.TextGrid")
-    with open(textgrid_path, 'r') as f:
-        textgrid_content = f.read()
 
-    # Clean up temporary files
-    os.remove(os.path.join(corpus_dir, f"{video_id}.wav"))
-    os.remove(os.path.join(corpus_dir, f"{video_id}.txt"))
-    os.rmdir(corpus_dir)
-    os.remove(textgrid_path)
-    os.rmdir(output_dir)
+    try:
+        # Run MFA align using subprocess
+        command = ["mfa", "align", corpus_dir, "english_mfa", "english_mfa", output_dir]
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"Error during MFA alignment: {result.stderr}")
+            return None
 
-    return textgrid_content
+        # Check if TextGrid file was created
+        if not os.path.exists(textgrid_path):
+            print(f"TextGrid file not created. MFA output: {result.stdout}")
+            return None
 
-def process_alignment(textgrid_content):
-    word_level_timestamps = []
-    lines = textgrid_content.split('\n')
-    in_word_tier = False
-    for i, line in enumerate(lines):
-        if 'name = "words"' in line:
-            in_word_tier = True
-        elif 'item [' in line:
-            in_word_tier = False
-        if in_word_tier and 'intervals [' in line:
-            start = float(lines[i+1].split('=')[1].strip())
-            end = float(lines[i+2].split('=')[1].strip())
-            word = lines[i+3].split('=')[1].strip().strip('"')
-            word_level_timestamps.append({
-                'word': word,
-                'start': start,
-                'end': end
-            })
-    return word_level_timestamps
+        # Read the TextGrid file
+        tg = textgrid.TextGrid.fromFile(textgrid_path)
+
+        # Process the TextGrid to extract word-level timestamps
+        word_tier = tg[0]  # Assuming the word tier is the first tier
+        word_level_timestamps = []
+        for interval in word_tier:
+            if interval.mark:  # Exclude silent intervals
+                word_level_timestamps.append({
+                    'word': interval.mark,
+                    'start': interval.minTime,
+                    'end': interval.maxTime
+                })
+
+        return word_level_timestamps
+
+    except Exception as e:
+        print(f"Error during MFA alignment: {str(e)}")
+        return None
+
+    finally:
+        # Clean up temporary files
+        if os.path.exists(os.path.join(corpus_dir, f"{video_id}.wav")):
+            os.remove(os.path.join(corpus_dir, f"{video_id}.wav"))
+        if os.path.exists(os.path.join(corpus_dir, f"{video_id}.txt")):
+            os.remove(os.path.join(corpus_dir, f"{video_id}.txt"))
+        os.rmdir(corpus_dir)
+        if os.path.exists(textgrid_path):
+            os.remove(textgrid_path)
+        os.rmdir(output_dir)
 
 def get_word_level_timestamps(url):
     video_id = extract_video_id(url)
@@ -122,9 +144,7 @@ def get_word_level_timestamps(url):
     if not transcript:
         return None
 
-    alignment = align_transcript_with_audio(video_id, transcript)
-    word_level_timestamps = process_alignment(alignment)
-
+    word_level_timestamps = align_transcript_with_audio(video_id, transcript)
     return word_level_timestamps
 
 # Example usage
