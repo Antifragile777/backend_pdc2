@@ -45,16 +45,16 @@ def get_youtube_transcript(video_id):
         return None
 
 def download_audio(video_id):
-    output_filename = f'{video_id}.wav'
+    output_filename = f'{video_id}.flac'
     ydl_opts = {
-        'format': 'bestaudio/best',
+        'format': 'worstaudio/worst',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'wav',
-            'preferredquality': '192',
+            'preferredcodec': 'flac',
+            'preferredquality': '0', # Fastest but largest FLAC compression
         }],
         'outtmpl': f'{video_id}.%(ext)s',
-        'keepvideo': False,
+        'keepvideo': True,
         'verbose': True
     }
     try:
@@ -149,6 +149,6 @@ def get_word_level_timestamps(url):
 
 # Example usage
 if __name__ == "__main__":
-    given_url = "https://youtu.be/Xu8U_fOU0iU"
+    given_url = "https://www.youtube.com/watch?v=Mcotl9HSo4U"
     result = get_word_level_timestamps(given_url)
     print(json.dumps(result, indent=2))
